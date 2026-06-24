@@ -82,7 +82,7 @@ Project Lifeguard is in active early development and validation.
 
 Built by **Michael Contino** — U.S. Navy Veteran (medically retired, 12 years active duty), artist, and entrepreneur based in Highland Park, IL.
 
-Active TS Security Clearance · MS International Relations · BFA · AS Paralegal Studies
+Security Clearance · BFA · AS Paralegal Studies 
 
 **Michael Contino Studios**
 
