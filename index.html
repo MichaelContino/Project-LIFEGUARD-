@@ -1,0 +1,537 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Project Lifeguard — Real AEDs. Real Locations. Real Time.</title>
+
+  <!-- Leaflet CSS -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+  <!-- Leaflet JS -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+
+  <style>
+    /* ── Reset & Base ─────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --navy:       #0A1628;
+      --navy-mid:   #0D2040;
+      --navy-light: #142952;
+      --red:        #DA1A1A;
+      --red-glow:   rgba(218, 26, 26, 0.35);
+      --white:      #FFFFFF;
+      --ice:        #C8D8FF;
+      --muted:      #7A9CC4;
+      --gold:       #F5A623;
+      --glass-bg:   rgba(10, 22, 40, 0.88);
+      --glass-border: rgba(200, 216, 255, 0.12);
+    }
+
+    html, body {
+      height: 100%;
+      font-family: 'Courier New', Courier, monospace;
+      background: var(--navy);
+      color: var(--white);
+      overflow: hidden;
+    }
+
+    /* ── MAP (full viewport) ──────────────────────────────── */
+    #map {
+      position: fixed;
+      inset: 0;
+      z-index: 0;
+      filter: brightness(0.72) saturate(0.6);
+    }
+
+    /* Dark tile override */
+    .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(0.85) contrast(0.9); }
+
+    /* ── OVERLAY LAYOUT ───────────────────────────────────── */
+    #overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 10;
+      pointer-events: none;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      padding: 20px;
+    }
+
+    /* ── HEADER ───────────────────────────────────────────── */
+    #header {
+      pointer-events: all;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      background: var(--glass-bg);
+      border: 1px solid var(--glass-border);
+      border-radius: 6px;
+      padding: 14px 20px;
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      max-width: 680px;
+    }
+
+    .cross {
+      flex-shrink: 0;
+      width: 36px;
+      height: 36px;
+      position: relative;
+    }
+    .cross::before, .cross::after {
+      content: '';
+      position: absolute;
+      background: var(--red);
+      border-radius: 2px;
+    }
+    .cross::before { width: 36px; height: 12px; top: 12px; left: 0; }
+    .cross::after  { width: 12px; height: 36px; top: 0; left: 12px; }
+
+    .header-text { flex: 1; }
+
+    .header-eyebrow {
+      font-size: 9px;
+      letter-spacing: 4px;
+      color: var(--muted);
+      text-transform: uppercase;
+      margin-bottom: 2px;
+    }
+
+    .header-title {
+      font-family: Georgia, 'Times New Roman', serif;
+      font-size: 22px;
+      font-weight: 700;
+      color: var(--white);
+      letter-spacing: 1px;
+      line-height: 1;
+    }
+
+    .header-title span { color: var(--red); }
+
+    /* ECG canvas */
+    #ecg-canvas {
+      flex-shrink: 0;
+      width: 140px;
+      height: 36px;
+    }
+
+    /* ── STATUS BAR ───────────────────────────────────────── */
+    #status-bar {
+      pointer-events: all;
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .status-chip {
+      background: var(--glass-bg);
+      border: 1px solid var(--glass-border);
+      border-radius: 4px;
+      padding: 6px 12px;
+      font-size: 10px;
+      letter-spacing: 2px;
+      color: var(--muted);
+      text-transform: uppercase;
+      backdrop-filter: blur(8px);
+    }
+
+    .status-chip .val {
+      color: var(--gold);
+      font-weight: 700;
+      margin-left: 6px;
+    }
+
+    .status-chip.live .val { color: #4ade80; }
+    .status-chip.live .dot {
+      display: inline-block;
+      width: 6px; height: 6px;
+      background: #4ade80;
+      border-radius: 50%;
+      margin-right: 4px;
+      animation: pulse-dot 1.4s ease-in-out infinite;
+    }
+
+    @keyframes pulse-dot {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50%       { opacity: 0.4; transform: scale(0.7); }
+    }
+
+    /* ── SIDE PANEL ───────────────────────────────────────── */
+    #side-panel {
+      pointer-events: all;
+      position: fixed;
+      top: 90px;
+      right: 20px;
+      width: 280px;
+      background: var(--glass-bg);
+      border: 1px solid var(--glass-border);
+      border-radius: 6px;
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      overflow: hidden;
+      z-index: 20;
+    }
+
+    .panel-header {
+      background: var(--red);
+      padding: 10px 16px;
+      font-size: 9px;
+      letter-spacing: 3px;
+      text-transform: uppercase;
+      font-weight: 700;
+    }
+
+    .panel-body { padding: 16px; }
+
+    .panel-tagline {
+      font-family: Georgia, serif;
+      font-size: 14px;
+      line-height: 1.5;
+      color: var(--ice);
+      margin-bottom: 16px;
+      font-style: italic;
+    }
+
+    .stat-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      border-bottom: 1px solid var(--glass-border);
+      padding: 8px 0;
+    }
+    .stat-row:last-of-type { border-bottom: none; }
+
+    .stat-label {
+      font-size: 9px;
+      letter-spacing: 2px;
+      color: var(--muted);
+      text-transform: uppercase;
+    }
+
+    .stat-value {
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--gold);
+      font-family: Georgia, serif;
+    }
+
+    .stat-value.red { color: var(--red); }
+    .stat-value.green { color: #4ade80; }
+
+    .panel-cta {
+      display: block;
+      margin-top: 16px;
+      background: var(--red);
+      color: var(--white);
+      text-align: center;
+      padding: 10px;
+      border-radius: 4px;
+      font-size: 10px;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      text-decoration: none;
+      font-weight: 700;
+      transition: background 0.2s;
+    }
+    .panel-cta:hover { background: #ff2929; }
+
+    /* ── LEGEND ───────────────────────────────────────────── */
+    #legend {
+      pointer-events: all;
+      position: fixed;
+      bottom: 20px;
+      left: 20px;
+      background: var(--glass-bg);
+      border: 1px solid var(--glass-border);
+      border-radius: 6px;
+      padding: 12px 16px;
+      backdrop-filter: blur(8px);
+      font-size: 10px;
+      letter-spacing: 1px;
+      z-index: 20;
+    }
+
+    .legend-title {
+      font-size: 8px;
+      letter-spacing: 3px;
+      color: var(--muted);
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 5px;
+      color: var(--ice);
+    }
+
+    .legend-dot {
+      width: 10px; height: 10px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    /* ── CUSTOM LEAFLET MARKERS ───────────────────────────── */
+    .aed-marker {
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      border: 2px solid var(--white);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .marker-verified   { background: #16a34a; box-shadow: 0 0 10px rgba(22,163,74,0.6); }
+    .marker-unverified { background: var(--gold); box-shadow: 0 0 10px rgba(245,166,35,0.6); }
+    .marker-missing    { background: var(--red); box-shadow: 0 0 12px var(--red-glow); animation: pulse-marker 1.8s ease-in-out infinite; }
+
+    @keyframes pulse-marker {
+      0%, 100% { box-shadow: 0 0 6px var(--red-glow); transform: scale(1); }
+      50%       { box-shadow: 0 0 18px var(--red-glow); transform: scale(1.15); }
+    }
+
+    /* ── LEAFLET POPUP ────────────────────────────────────── */
+    .leaflet-popup-content-wrapper {
+      background: var(--navy-mid) !important;
+      border: 1px solid var(--glass-border) !important;
+      border-radius: 4px !important;
+      color: var(--white) !important;
+      font-family: 'Courier New', monospace !important;
+      font-size: 12px !important;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.5) !important;
+    }
+    .leaflet-popup-tip { background: var(--navy-mid) !important; }
+    .popup-name { font-family: Georgia, serif; font-size: 14px; font-weight: 700; margin-bottom: 4px; }
+    .popup-status { font-size: 10px; letter-spacing: 2px; text-transform: uppercase; margin-bottom: 6px; }
+    .popup-status.verified   { color: #4ade80; }
+    .popup-status.unverified { color: var(--gold); }
+    .popup-status.missing    { color: var(--red); }
+    .popup-coords { color: var(--muted); font-size: 10px; }
+
+    /* ── ATTRIBUTION ──────────────────────────────────────── */
+    .leaflet-control-attribution {
+      background: rgba(10,22,40,0.7) !important;
+      color: var(--muted) !important;
+      font-size: 9px !important;
+    }
+    .leaflet-control-attribution a { color: var(--muted) !important; }
+
+    /* ── PILOT BADGE ──────────────────────────────────────── */
+    #pilot-badge {
+      pointer-events: none;
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      border: 1px solid rgba(218,26,26,0.3);
+      border-radius: 50%;
+      width: 320px;
+      height: 320px;
+      z-index: 5;
+      animation: radar 3s linear infinite;
+    }
+
+    @keyframes radar {
+      0%   { box-shadow: 0 0 0 0 rgba(218,26,26,0.25); }
+      70%  { box-shadow: 0 0 0 40px rgba(218,26,26,0); }
+      100% { box-shadow: 0 0 0 0 rgba(218,26,26,0); }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- MAP -->
+  <div id="map"></div>
+
+  <!-- RADAR PULSE (decorative) -->
+  <div id="pilot-badge"></div>
+
+  <!-- OVERLAY -->
+  <div id="overlay">
+
+    <!-- HEADER -->
+    <div id="header">
+      <div class="cross"></div>
+      <div class="header-text">
+        <div class="header-eyebrow">Emergency Response Infrastructure</div>
+        <div class="header-title">PROJECT <span>LIFEGUARD</span></div>
+      </div>
+      <canvas id="ecg-canvas" width="140" height="36"></canvas>
+    </div>
+
+    <!-- STATUS BAR -->
+    <div id="status-bar">
+      <div class="status-chip live">
+        <span class="dot"></span>Status
+        <span class="val">PILOT ACTIVE</span>
+      </div>
+      <div class="status-chip">
+        Zone <span class="val">Highland Park, IL</span>
+      </div>
+      <div class="status-chip">
+        AEDs Mapped <span class="val">12</span>
+      </div>
+      <div class="status-chip">
+        Verified <span class="val">4 / 12</span>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- SIDE PANEL -->
+  <div id="side-panel">
+    <div class="panel-header">Project Lifeguard</div>
+    <div class="panel-body">
+      <p class="panel-tagline">"The database says it's there. The database is wrong."</p>
+      <div class="stat-row">
+        <span class="stat-label">Response window</span>
+        <span class="stat-value red">&lt; 90s</span>
+      </div>
+      <div class="stat-row">
+        <span class="stat-label">Unverified AEDs</span>
+        <span class="stat-value">~40%</span>
+      </div>
+      <div class="stat-row">
+        <span class="stat-label">Survival w/o AED</span>
+        <span class="stat-value red">10%</span>
+      </div>
+      <div class="stat-row">
+        <span class="stat-label">Pilot area</span>
+        <span class="stat-value green">LIVE</span>
+      </div>
+      <a class="panel-cta"
+         href="https://github.com/MichaelContino/Project-LIFEGUARD-"
+         target="_blank">
+        View on GitHub →
+      </a>
+    </div>
+  </div>
+
+  <!-- LEGEND -->
+  <div id="legend">
+    <div class="legend-title">AED Status</div>
+    <div class="legend-item">
+      <div class="legend-dot" style="background:#16a34a;"></div>
+      Verified &amp; Accessible
+    </div>
+    <div class="legend-item">
+      <div class="legend-dot" style="background:#F5A623;"></div>
+      Unverified / Needs Check
+    </div>
+    <div class="legend-item">
+      <div class="legend-dot" style="background:#DA1A1A;"></div>
+      Flagged / Missing
+    </div>
+  </div>
+
+  <script>
+    // ── MAP INIT ─────────────────────────────────────────────────
+    const map = L.map('map', {
+      center: [42.1817, -87.8003], // Highland Park, IL
+      zoom: 14,
+      zoomControl: true,
+      attributionControl: true
+    });
+
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '© OpenStreetMap contributors | Project Lifeguard Pilot'
+    }).addTo(map);
+
+    // ── AED DATA (placeholder — replace with real verified locations) ──
+    const aeds = [
+      { name: "Highland Park City Hall",         lat: 42.1823, lng: -87.8002, status: "verified",   note: "Main lobby, east entrance. Verified 2026-06." },
+      { name: "Jewel-Osco Central Ave",          lat: 42.1801, lng: -87.7978, status: "unverified", note: "Near pharmacy. Last registry update: 2024." },
+      { name: "Highland Park Hospital Entrance", lat: 42.1845, lng: -87.8041, status: "verified",   note: "Main entrance, mounted left of doors." },
+      { name: "Ravinia Festival Grounds",        lat: 42.1702, lng: -87.7857, status: "unverified", note: "Listed at Gate 2. Seasonal — needs confirmation." },
+      { name: "Port Clinton Metra Station",      lat: 42.1836, lng: -87.7993, status: "missing",    note: "Listed in registry. Not located on field audit." },
+      { name: "Sunset Foods",                    lat: 42.1788, lng: -87.8022, status: "unverified", note: "Customer service desk area. Unconfirmed." },
+      { name: "Highland Park High School",       lat: 42.1763, lng: -87.8015, status: "verified",   note: "Main gymnasium corridor. Confirmed by staff." },
+      { name: "Starbucks Central Ave",           lat: 42.1812, lng: -87.7965, status: "unverified", note: "Registry listed. Not independently verified." },
+      { name: "Whole Foods Market",              lat: 42.1795, lng: -87.7952, status: "verified",   note: "Near customer service. Staff confirmed access." },
+      { name: "Bank of America Branch",          lat: 42.1831, lng: -87.8010, status: "missing",    note: "Listed. Branch relocated — AED status unknown." },
+      { name: "YMCA of Highland Park",           lat: 42.1778, lng: -87.8055, status: "unverified", note: "Listed near front desk. Visit needed." },
+      { name: "Sunset Park Field House",         lat: 42.1849, lng: -87.8070, status: "unverified", note: "Park district registry only. Unverified." },
+    ];
+
+    // ── MARKER ICONS ─────────────────────────────────────────────
+    function makeIcon(status) {
+      const colors = {
+        verified:   '#16a34a',
+        unverified: '#F5A623',
+        missing:    '#DA1A1A'
+      };
+      const color = colors[status] || '#F5A623';
+      const pulse = status === 'missing' ? `
+        <animate attributeName="r" values="8;11;8" dur="1.8s" repeatCount="indefinite"/>
+        <animate attributeName="opacity" values="1;0.5;1" dur="1.8s" repeatCount="indefinite"/>
+      ` : '';
+
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="9" fill="${color}" opacity="0.25">${pulse}</circle>
+        <circle cx="12" cy="12" r="6" fill="${color}" stroke="white" stroke-width="1.5"/>
+        <text x="12" y="16" text-anchor="middle" font-size="9" font-weight="bold" fill="white" font-family="Arial">+</text>
+      </svg>`;
+
+      return L.divIcon({
+        html: svg,
+        className: '',
+        iconSize: [24, 24],
+        iconAnchor: [12, 12],
+        popupAnchor: [0, -14]
+      });
+    }
+
+    // ── PLACE MARKERS ────────────────────────────────────────────
+    const statusLabel = { verified: 'VERIFIED', unverified: 'UNVERIFIED', missing: 'FLAGGED — NOT FOUND' };
+
+    aeds.forEach(aed => {
+      const marker = L.marker([aed.lat, aed.lng], { icon: makeIcon(aed.status) }).addTo(map);
+      marker.bindPopup(`
+        <div class="popup-name">${aed.name}</div>
+        <div class="popup-status ${aed.status}">${statusLabel[aed.status]}</div>
+        <div style="color:#C8D8FF;font-size:11px;margin-bottom:4px;">${aed.note}</div>
+        <div class="popup-coords">${aed.lat.toFixed(4)}, ${aed.lng.toFixed(4)}</div>
+      `);
+    });
+
+    // ── ECG HEARTBEAT ANIMATION ───────────────────────────────────
+    const canvas = document.getElementById('ecg-canvas');
+    const ctx = canvas.getContext('2d');
+    const W = canvas.width, H = canvas.height;
+    let offset = 0;
+
+    function ecgY(x) {
+      const cycle = x % 80;
+      if (cycle < 30) return H / 2;
+      if (cycle < 35) return H / 2 - 4;
+      if (cycle < 38) return H * 0.1;
+      if (cycle < 42) return H * 0.85;
+      if (cycle < 46) return H / 2 - 3;
+      if (cycle < 50) return H / 2;
+      return H / 2;
+    }
+
+    function drawECG() {
+      ctx.clearRect(0, 0, W, H);
+      ctx.strokeStyle = '#DA1A1A';
+      ctx.lineWidth = 1.5;
+      ctx.shadowColor = '#DA1A1A';
+      ctx.shadowBlur = 4;
+      ctx.beginPath();
+      for (let x = 0; x < W; x++) {
+        const y = ecgY(x + offset);
+        x === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+      offset = (offset + 1) % 80;
+      requestAnimationFrame(drawECG);
+    }
+    drawECG();
+  </script>
+</body>
+</html>
